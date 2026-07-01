@@ -18,11 +18,8 @@ _PATH_OPS = {"r", "q", "l", "i"}
 _UNIQUE_OPTIONAL_OPS = {"r", "q", "i"}
 
 
-class WrappedLinear(nn.Module):
-    """Wrapper around ``nn.Linear`` with compact transform paths.
-
-    The wrapper keeps the original linear module intact so its weights, bias,
-    dtype, device, and state-dict entries remain owned by the original module.
+class _PathMixin:
+    """Shared path interpreter for wrappers.
 
     Path symbols are interpreted left-to-right:
         r: apply trainable rotation
@@ -37,9 +34,8 @@ class WrappedLinear(nn.Module):
         rqli: R^-1(Linear(Q(R(x))))
     """
 
-    def __init__(
+    def _init_path(
         self,
-        base: nn.Linear,
         path: str = "l",
         rotation: Optional[nn.Module] = None,
         quantization_bits: int = 8,
@@ -47,11 +43,6 @@ class WrappedLinear(nn.Module):
         quantization_eps: float = 1e-8,
         use_rotation_cache: bool = True,
     ) -> None:
-        super().__init__()
-        if not isinstance(base, nn.Linear):
-            raise TypeError(f"WrappedLinear expected nn.Linear, got {type(base)!r}")
-
-        self.base = base
         self.path = _validate_path(path)
         self.rotation = rotation
         self.quantization_bits = quantization_bits
@@ -59,23 +50,7 @@ class WrappedLinear(nn.Module):
         self.quantization_eps = quantization_eps
         self.use_rotation_cache = use_rotation_cache
 
-    @property
-    def weight(self) -> torch.Tensor:
-        return self.base.weight
-
-    @property
-    def bias(self) -> Optional[torch.Tensor]:
-        return self.base.bias
-
-    @property
-    def in_features(self) -> int:
-        return self.base.in_features
-
-    @property
-    def out_features(self) -> int:
-        return self.base.out_features
-
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
+    def _forward_path(self, input: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
         value = input
         has_applied_linear = False
 
@@ -90,7 +65,7 @@ class WrappedLinear(nn.Module):
                     eps=self.quantization_eps,
                 )
             elif op == "l":
-                value = self.base(value)
+                value = self.base(value, *args, **kwargs)
                 has_applied_linear = True
             elif op == "i":
                 value = self._apply_inverse_rotation(value, has_applied_linear)
@@ -117,26 +92,46 @@ class WrappedLinear(nn.Module):
         rotation_matrix = self.rotation.rotation_matrix(use_cache=self.use_rotation_cache)
         return value.matmul(rotation_matrix.transpose(-1, -2))
 
-    def extra_repr(self) -> str:
-        return self.base.extra_repr()
 
-
-class WrappedModule(nn.Module):
-    """Generic pass-through wrapper for a LLaMA submodule.
+class WrappedModule(_PathMixin, nn.Module):
+    """Generic wrapper for a LLaMA submodule with compact transform paths.
 
     Use this when you want to wrap a larger module, such as attention or MLP,
-    while still preserving the original forward behavior exactly.
+    while still preserving the original forward behavior exactly. The path is
+    applied to the first positional argument, then remaining args/kwargs are
+    passed to the wrapped module at the ``l`` step.
     """
 
-    def __init__(self, base: nn.Module) -> None:
+    def __init__(
+        self,
+        base: nn.Module,
+        path: str = "l",
+        rotation: Optional[nn.Module] = None,
+        quantization_bits: int = 8,
+        quantization_mode: str = "asymmetric",
+        quantization_eps: float = 1e-8,
+        use_rotation_cache: bool = True,
+    ) -> None:
         super().__init__()
         self.base = base
+        self._init_path(
+            path=path,
+            rotation=rotation,
+            quantization_bits=quantization_bits,
+            quantization_mode=quantization_mode,
+            quantization_eps=quantization_eps,
+            use_rotation_cache=use_rotation_cache,
+        )
 
     def forward(self, *args: Any, **kwargs: Any) -> Any:
-        return self.base(*args, **kwargs)
+        if not args:
+            raise TypeError("WrappedModule requires at least one positional input")
+
+        input, *remaining_args = args
+        return self._forward_path(input, *remaining_args, **kwargs)
 
 
-__all__ = ["WrappedLinear", "WrappedModule"]
+__all__ = ["WrappedModule"]
 
 
 def _validate_path(path: str) -> str:

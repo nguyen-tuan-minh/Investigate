@@ -1,7 +1,7 @@
-"""Smoke test for WrappedLinear.
+"""Smoke tests for WrappedModule.
 
 This file is intentionally runnable without pytest:
-    python tests/test_wrapped_linear.py
+    python tests/test_wrapped_module.py
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from llama_wrapper.model import WrappedLinear
+from llama_wrapper.model import WrappedModule
 from llama_wrapper.rotation import CayleyRotation
 
 
@@ -26,7 +26,7 @@ def test_plain_linear_path() -> None:
     torch.manual_seed(0)
 
     base = nn.Linear(4, 4)
-    wrapped = WrappedLinear(base, path="l")
+    wrapped = WrappedModule(base, path="l")
     sample = torch.randn(3, 4)
 
     expected = base(sample)
@@ -40,7 +40,7 @@ def test_rot_quant_linear_inverse_path_with_one_train_step() -> None:
 
     base = nn.Linear(4, 4)
     rotation = CayleyRotation(dim=4, init_scale=0.01)
-    wrapped = WrappedLinear(
+    wrapped = WrappedModule(
         base,
         path="rqli",
         rotation=rotation,
@@ -90,7 +90,30 @@ def test_rot_quant_linear_inverse_path_with_one_train_step() -> None:
     print(refreshed is not cached_once)
 
 
+def test_wrapped_module_path() -> None:
+    torch.manual_seed(0)
+
+    base = nn.Sequential(nn.Linear(4, 4), nn.Tanh())
+    rotation = CayleyRotation(dim=4, init_scale=0.01)
+    wrapped = WrappedModule(
+        base,
+        path="rqli",
+        rotation=rotation,
+        quantization_bits=4,
+        quantization_mode="asymmetric",
+        use_rotation_cache=True,
+    )
+    sample = torch.randn(2, 4)
+
+    rotation.clear_cache()
+    output = wrapped(sample)
+
+    assert output.shape == sample.shape
+    assert rotation._cached_rotation is not None
+
+
 if __name__ == "__main__":
     test_plain_linear_path()
     test_rot_quant_linear_inverse_path_with_one_train_step()
-    print("\nWrappedLinear tests passed.")
+    test_wrapped_module_path()
+    print("\nWrapper tests passed.")
