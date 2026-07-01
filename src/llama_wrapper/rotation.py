@@ -33,30 +33,41 @@ class CayleyRotation(nn.Module):
             nn.init.normal_(raw, mean=0.0, std=init_scale)
 
         self.raw = nn.Parameter(raw)
+        self._cached_rotation = None
 
     def skew_symmetric_matrix(self) -> torch.Tensor:
         return self.raw - self.raw.transpose(-1, -2)
 
-    def rotation_matrix(self) -> torch.Tensor:
+    def clear_cache(self) -> None:
+        self._cached_rotation = None
+
+    def rotation_matrix(self, use_cache: bool = False) -> torch.Tensor:
+        if use_cache and self._cached_rotation is not None:
+            return self._cached_rotation
+
         skew = self.skew_symmetric_matrix()
         eye = torch.eye(self.dim, device=skew.device, dtype=skew.dtype)
 
         left = eye + skew
         right = eye - skew
 
-        return torch.linalg.solve(left, right)
+        rotation = torch.linalg.solve(left, right)
+        if use_cache:
+            self._cached_rotation = rotation
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        return rotation
+
+    def forward(self, input: torch.Tensor, use_cache: bool = False) -> torch.Tensor:
         if input.shape[-1] != self.dim:
             raise ValueError(
                 "Input last dimension must match rotation dimension: "
                 f"{input.shape[-1]} != {self.dim}"
             )
 
-        return input.matmul(self.rotation_matrix())
+        return input.matmul(self.rotation_matrix(use_cache=use_cache))
 
-    def orthogonality_error(self) -> torch.Tensor:
-        rotation = self.rotation_matrix()
+    def orthogonality_error(self, use_cache: bool = False) -> torch.Tensor:
+        rotation = self.rotation_matrix(use_cache=use_cache)
         eye = torch.eye(self.dim, device=rotation.device, dtype=rotation.dtype)
         residual = rotation.transpose(-1, -2).matmul(rotation) - eye
         return residual.abs().max()
@@ -76,7 +87,8 @@ if __name__ == "__main__":
         requires_grad=True,
     )
 
-    output = rotation(sample)
+    rotation.clear_cache()
+    output = rotation(sample, use_cache=True)
     loss = output.pow(2).mean()
     loss.backward()
 
@@ -84,13 +96,13 @@ if __name__ == "__main__":
     print(sample.detach())
 
     print("\nRotation matrix:")
-    print(rotation.rotation_matrix().detach())
+    print(rotation.rotation_matrix(use_cache=True).detach())
 
     print("\nOutput:")
     print(output.detach())
 
     print("\nMax orthogonality error:")
-    print(rotation.orthogonality_error().detach())
+    print(rotation.orthogonality_error(use_cache=True).detach())
 
     print("\nGradient exists for raw rotation parameter:")
     print(rotation.raw.grad is not None)
