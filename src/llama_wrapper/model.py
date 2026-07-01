@@ -18,8 +18,13 @@ _PATH_OPS = {"r", "q", "l", "i"}
 _UNIQUE_OPTIONAL_OPS = {"r", "q", "i"}
 
 
-class _PathMixin:
-    """Shared path interpreter for wrappers.
+class WrappedModule(nn.Module):
+    """Generic wrapper for a LLaMA submodule with compact transform paths.
+
+    Use this when you want to wrap a larger module, such as attention or MLP,
+    while still preserving the original forward behavior exactly. The path is
+    applied to the first positional argument, then remaining args/kwargs are
+    passed to the wrapped module at the ``l`` step.
 
     Path symbols are interpreted left-to-right:
         r: apply trainable rotation
@@ -34,8 +39,9 @@ class _PathMixin:
         rqli: R^-1(Linear(Q(R(x))))
     """
 
-    def _init_path(
+    def __init__(
         self,
+        base: nn.Module,
         path: str = "l",
         rotation: Optional[nn.Module] = None,
         quantization_bits: int = 8,
@@ -43,6 +49,8 @@ class _PathMixin:
         quantization_eps: float = 1e-8,
         use_rotation_cache: bool = True,
     ) -> None:
+        super().__init__()
+        self.base = base
         self.path = _validate_path(path)
         self.rotation = rotation
         self.quantization_bits = quantization_bits
@@ -50,27 +58,72 @@ class _PathMixin:
         self.quantization_eps = quantization_eps
         self.use_rotation_cache = use_rotation_cache
 
-    def _forward_path(self, input: torch.Tensor, *args: Any, **kwargs: Any) -> torch.Tensor:
+    def forward(self, *args: Any, **kwargs: Any) -> Any:
+        if args:
+            input, *remaining_args = args
+            return self._forward_path(input, *remaining_args, **kwargs)
+
+        if "hidden_states" in kwargs:
+            input = kwargs.pop("hidden_states")
+            return self._forward_path(input, **kwargs)
+
+        if "inputs_embeds" in kwargs:
+            input = kwargs.pop("inputs_embeds")
+            return self._forward_path(input, **kwargs)
+
+        if "input_ids" in kwargs:
+            input = kwargs.pop("input_ids")
+            return self._forward_path(input, **kwargs)
+
+        raise TypeError("WrappedModule requires at least one positional input")
+
+    def _forward_path(self, input: torch.Tensor, *args: Any, **kwargs: Any) -> Any:
         value = input
         has_applied_linear = False
 
         for op in self.path:
             if op == "r":
-                value = self._apply_rotation(value, has_applied_linear)
-            elif op == "q":
-                value = fake_quantize_ste(
+                value = self._map_transform(
                     value,
-                    num_bits=self.quantization_bits,
-                    mode=self.quantization_mode,
-                    eps=self.quantization_eps,
+                    lambda tensor: self._apply_rotation(tensor, has_applied_linear),
+                )
+            elif op == "q":
+                value = self._map_transform(
+                    value,
+                    lambda tensor: fake_quantize_ste(
+                        tensor,
+                        num_bits=self.quantization_bits,
+                        mode=self.quantization_mode,
+                        eps=self.quantization_eps,
+                    ),
                 )
             elif op == "l":
                 value = self.base(value, *args, **kwargs)
                 has_applied_linear = True
             elif op == "i":
-                value = self._apply_inverse_rotation(value, has_applied_linear)
+                value = self._map_transform(
+                    value,
+                    lambda tensor: self._apply_inverse_rotation(
+                        tensor,
+                        has_applied_linear,
+                    ),
+                )
 
         return value
+
+    def _map_transform(self, value: Any, transform: Any) -> Any:
+        if isinstance(value, torch.Tensor):
+            return transform(value)
+        if isinstance(value, tuple):
+            if not value or not isinstance(value[0], torch.Tensor):
+                raise TypeError("path transform expected tensor as first tuple item")
+            return (transform(value[0]), *value[1:])
+        if isinstance(value, list):
+            if not value or not isinstance(value[0], torch.Tensor):
+                raise TypeError("path transform expected tensor as first list item")
+            return [transform(value[0]), *value[1:]]
+
+        raise TypeError(f"path transform expected tensor/tuple/list, got {type(value)!r}")
 
     def _apply_rotation(self, value: torch.Tensor, after_linear: bool) -> torch.Tensor:
         if self.rotation is None:
@@ -91,44 +144,6 @@ class _PathMixin:
 
         rotation_matrix = self.rotation.rotation_matrix(use_cache=self.use_rotation_cache)
         return value.matmul(rotation_matrix.transpose(-1, -2))
-
-
-class WrappedModule(_PathMixin, nn.Module):
-    """Generic wrapper for a LLaMA submodule with compact transform paths.
-
-    Use this when you want to wrap a larger module, such as attention or MLP,
-    while still preserving the original forward behavior exactly. The path is
-    applied to the first positional argument, then remaining args/kwargs are
-    passed to the wrapped module at the ``l`` step.
-    """
-
-    def __init__(
-        self,
-        base: nn.Module,
-        path: str = "l",
-        rotation: Optional[nn.Module] = None,
-        quantization_bits: int = 8,
-        quantization_mode: str = "asymmetric",
-        quantization_eps: float = 1e-8,
-        use_rotation_cache: bool = True,
-    ) -> None:
-        super().__init__()
-        self.base = base
-        self._init_path(
-            path=path,
-            rotation=rotation,
-            quantization_bits=quantization_bits,
-            quantization_mode=quantization_mode,
-            quantization_eps=quantization_eps,
-            use_rotation_cache=use_rotation_cache,
-        )
-
-    def forward(self, *args: Any, **kwargs: Any) -> Any:
-        if not args:
-            raise TypeError("WrappedModule requires at least one positional input")
-
-        input, *remaining_args = args
-        return self._forward_path(input, *remaining_args, **kwargs)
 
 
 __all__ = ["WrappedModule"]
