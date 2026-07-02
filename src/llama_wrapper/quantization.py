@@ -29,38 +29,43 @@ def fake_quantize_ste(
     if num_bits is None:
         return tensor
 
+    original_dtype = tensor.dtype
+    quant_tensor = tensor.float() if tensor.is_floating_point() else tensor
+    eps_tensor = torch.tensor(eps, device=tensor.device, dtype=torch.float32)
+
     if mode == "symmetric":
         if num_bits < 2:
             raise ValueError("num_bits must be at least 2")
         qmin = -(2 ** (num_bits - 1))
         qmax = 2 ** (num_bits - 1) - 1
 
-        scale = tensor.detach().abs().max() / qmax
-        scale = torch.clamp(scale, min=eps)
+        scale = quant_tensor.detach().abs().max() / qmax
+        scale = torch.clamp(scale, min=eps_tensor)
 
-        quantized = torch.round(tensor / scale).clamp(qmin, qmax)
+        quantized = torch.round(quant_tensor / scale).clamp(qmin, qmax)
         dequantized = quantized * scale
 
     elif mode == "asymmetric":
         qmin = 0
         qmax = 2**num_bits - 1
 
-        tensor_detached = tensor.detach()
+        tensor_detached = quant_tensor.detach()
         tensor_min = tensor_detached.min()
         tensor_max = tensor_detached.max()
 
         scale = (tensor_max - tensor_min) / (qmax - qmin)
-        scale = torch.clamp(scale, min=eps)
+        scale = torch.clamp(scale, min=eps_tensor)
 
         zero_point = torch.round(qmin - tensor_min / scale)
         zero_point = torch.clamp(zero_point, qmin, qmax)
 
-        quantized = torch.round(tensor / scale + zero_point).clamp(qmin, qmax)
+        quantized = torch.round(quant_tensor / scale + zero_point).clamp(qmin, qmax)
         dequantized = (quantized - zero_point) * scale
 
     else:
         raise ValueError("mode must be either 'symmetric' or 'asymmetric'")
 
+    dequantized = dequantized.to(dtype=original_dtype)
     return tensor + (dequantized - tensor).detach()
 
 
