@@ -143,6 +143,7 @@ class WrappedModule(nn.Module):
             raise TypeError("inverse rotation requires a rotation_matrix method")
 
         rotation_matrix = self.rotation.rotation_matrix(use_cache=self.use_rotation_cache)
+        rotation_matrix = rotation_matrix.to(device=value.device, dtype=value.dtype)
         return value.matmul(rotation_matrix.transpose(-1, -2))
 
 
