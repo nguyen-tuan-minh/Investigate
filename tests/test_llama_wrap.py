@@ -36,7 +36,9 @@ class FakeMLP(nn.Module):
 class FakeLayer(nn.Module):
     def __init__(self) -> None:
         super().__init__()
+        self.input_layernorm = nn.LayerNorm(4)
         self.self_attn = FakeAttention()
+        self.post_attention_layernorm = nn.LayerNorm(4)
         self.mlp = FakeMLP()
 
 
@@ -46,6 +48,7 @@ class FakeLlamaModel(nn.Module):
         self.config = SimpleNamespace(hidden_size=4)
         self.embed_tokens = nn.Embedding(16, 4)
         self.layers = nn.ModuleList([FakeLayer(), FakeLayer()])
+        self.norm = nn.LayerNorm(4)
         self.lm_head = nn.Linear(4, 16, bias=False)
 
 
@@ -60,27 +63,39 @@ def test_wrap_fake_llama() -> None:
     )
 
     assert isinstance(model.embed_tokens, WrappedModule)
+    assert isinstance(model.norm, WrappedModule)
     assert isinstance(model.lm_head, WrappedModule)
     assert model.embed_tokens.path == "lr"
-    assert model.lm_head.path == "il"
-    assert len(result.wrapped_modules) == 6
+    assert model.norm.path == "qil"
+    assert model.lm_head.path == "l"
+    assert len(result.wrapped_modules) == 11
 
     for layer in model.layers:
+        assert isinstance(layer.input_layernorm, WrappedModule)
         assert isinstance(layer.self_attn, WrappedModule)
+        assert isinstance(layer.post_attention_layernorm, WrappedModule)
         assert isinstance(layer.mlp, WrappedModule)
-        assert layer.self_attn.path == "qilr"
-        assert layer.mlp.path == "qilr"
+        assert layer.input_layernorm.path == "qil"
+        assert layer.self_attn.path == "lr"
+        assert layer.post_attention_layernorm.path == "qil"
+        assert layer.mlp.path == "lr"
 
     input_ids = torch.tensor([[1, 2, 3]])
     hidden_states = model.embed_tokens(input_ids)
     assert hidden_states.shape == (1, 3, 4)
 
-    attn_output, _ = model.layers[0].self_attn(hidden_states=hidden_states)
-    mlp_output = model.layers[0].mlp(hidden_states)
-    logits = model.lm_head(hidden_states)
+    normed = model.layers[0].input_layernorm(hidden_states)
+    attn_output, _ = model.layers[0].self_attn(hidden_states=normed)
+    post_normed = model.layers[0].post_attention_layernorm(hidden_states)
+    mlp_output = model.layers[0].mlp(post_normed)
+    final_hidden = model.norm(hidden_states)
+    logits = model.lm_head(final_hidden)
 
+    assert normed.shape == hidden_states.shape
     assert attn_output.shape == hidden_states.shape
+    assert post_normed.shape == hidden_states.shape
     assert mlp_output.shape == hidden_states.shape
+    assert final_hidden.shape == hidden_states.shape
     assert logits.shape == (1, 3, 16)
     assert result.rotation._cached_rotation is not None
 

@@ -31,9 +31,10 @@ def wrap_llama_rotated_quantized(
 
     The wrapped flow is:
         embedding:  input_ids -> embedding -> rotate
-        attention:  quantize -> inverse rotate -> attention -> rotate
-        MLP:        quantize -> inverse rotate -> MLP -> rotate
-        lm_head:    inverse rotate -> lm_head
+        RMSNorms:   quantize -> inverse rotate -> norm
+        attention:  attention -> rotate
+        MLP:        MLP -> rotate
+        lm_head:    lm_head
 
     This keeps hidden states in the rotated basis between major submodules.
     """
@@ -57,10 +58,25 @@ def wrap_llama_rotated_quantized(
         wrapped_modules.append("embed_tokens")
 
     for layer_index, layer in enumerate(backbone.layers):
+        if hasattr(layer, "input_layernorm") and not isinstance(
+            layer.input_layernorm,
+            WrappedModule,
+        ):
+            layer.input_layernorm = WrappedModule(
+                layer.input_layernorm,
+                path="qil",
+                rotation=rotation,
+                quantization_bits=quantization_bits,
+                quantization_mode=quantization_mode,
+                quantization_eps=quantization_eps,
+                use_rotation_cache=use_rotation_cache,
+            )
+            wrapped_modules.append(f"layers.{layer_index}.input_layernorm")
+
         if not isinstance(layer.self_attn, WrappedModule):
             layer.self_attn = WrappedModule(
                 layer.self_attn,
-                path="qilr",
+                path="lr",
                 rotation=rotation,
                 quantization_bits=quantization_bits,
                 quantization_mode=quantization_mode,
@@ -69,10 +85,25 @@ def wrap_llama_rotated_quantized(
             )
             wrapped_modules.append(f"layers.{layer_index}.self_attn")
 
+        if hasattr(layer, "post_attention_layernorm") and not isinstance(
+            layer.post_attention_layernorm,
+            WrappedModule,
+        ):
+            layer.post_attention_layernorm = WrappedModule(
+                layer.post_attention_layernorm,
+                path="qil",
+                rotation=rotation,
+                quantization_bits=quantization_bits,
+                quantization_mode=quantization_mode,
+                quantization_eps=quantization_eps,
+                use_rotation_cache=use_rotation_cache,
+            )
+            wrapped_modules.append(f"layers.{layer_index}.post_attention_layernorm")
+
         if not isinstance(layer.mlp, WrappedModule):
             layer.mlp = WrappedModule(
                 layer.mlp,
-                path="qilr",
+                path="lr",
                 rotation=rotation,
                 quantization_bits=quantization_bits,
                 quantization_mode=quantization_mode,
@@ -81,10 +112,22 @@ def wrap_llama_rotated_quantized(
             )
             wrapped_modules.append(f"layers.{layer_index}.mlp")
 
+    if hasattr(backbone, "norm") and not isinstance(backbone.norm, WrappedModule):
+        backbone.norm = WrappedModule(
+            backbone.norm,
+            path="qil",
+            rotation=rotation,
+            quantization_bits=quantization_bits,
+            quantization_mode=quantization_mode,
+            quantization_eps=quantization_eps,
+            use_rotation_cache=use_rotation_cache,
+        )
+        wrapped_modules.append("norm")
+
     if hasattr(model, "lm_head") and not isinstance(model.lm_head, WrappedModule):
         model.lm_head = WrappedModule(
             model.lm_head,
-            path="il",
+            path="l",
             rotation=rotation,
             quantization_bits=quantization_bits,
             quantization_mode=quantization_mode,
