@@ -53,7 +53,7 @@ class CayleyRotation(nn.Module):
         right = eye - skew
 
         if left.is_cuda:
-            with torch.cuda.amp.autocast(enabled=False):
+            with torch.amp.autocast("cuda", enabled=False):
                 rotation = torch.linalg.solve(left, right)
         else:
             rotation = torch.linalg.solve(left, right)
