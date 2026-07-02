@@ -33,6 +33,11 @@ htmlcov/
 # Jupyter
 .ipynb_checkpoints/
 
+# Dataset artifacts
+data/raw/
+data/processed/
+data/cache/
+
 # OS/editor
 .DS_Store
 .vscode/
