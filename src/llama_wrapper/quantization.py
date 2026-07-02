@@ -6,12 +6,14 @@ pass, but gradients flow through the original floating-point tensor.
 
 from __future__ import annotations
 
+from typing import Optional
+
 import torch
 
 # Note: For asymmetric, this still use 0 point
 def fake_quantize_ste(
     tensor: torch.Tensor,
-    num_bits: int = 8,
+    num_bits: Optional[int] = 8,
     mode: str = "symmetric",
     eps: float = 1e-8,
 ) -> torch.Tensor:
@@ -23,6 +25,9 @@ def fake_quantize_ste(
     Backward:
         gradients pass through as if this function were the identity.
     """
+
+    if num_bits is None:
+        return tensor
 
     if mode == "symmetric":
         if num_bits < 2:
@@ -83,6 +88,7 @@ if __name__ == "__main__":
     }
 
     for name, sample in samples.items():
+        unchanged = fake_quantize_ste(sample, num_bits=None)
         symmetric = fake_quantize_ste(sample, num_bits=4, mode="symmetric")
         asymmetric = fake_quantize_ste(sample, num_bits=4, mode="asymmetric")
 
@@ -98,6 +104,9 @@ if __name__ == "__main__":
 
         print("\nAsymmetric fake quantized:")
         print(asymmetric.detach())
+
+        print("\nNo-op with num_bits=None:")
+        print(unchanged.detach())
 
         print("\nGradient after STE backward:")
         print(sample.grad)

@@ -22,7 +22,7 @@ class LlamaWrapResult:
 def wrap_llama_rotated_quantized(
     model: nn.Module,
     rotation: Optional[CayleyRotation] = None,
-    quantization_bits: int = 8,
+    quantization_bits: Optional[int] = 8,
     quantization_mode: str = "asymmetric",
     quantization_eps: float = 1e-8,
     use_rotation_cache: bool = True,
