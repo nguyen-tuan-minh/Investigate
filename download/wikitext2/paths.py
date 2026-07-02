@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 
-DATASET_NAME = "wikitext"
+DATASET_NAME = "Salesforce/wikitext"
 DATASET_CONFIG = "wikitext-2-raw-v1"
 SPLITS = ("train", "validation", "test")
 
