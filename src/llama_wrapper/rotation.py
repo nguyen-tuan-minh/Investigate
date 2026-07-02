@@ -45,13 +45,19 @@ class CayleyRotation(nn.Module):
         if use_cache and self._cached_rotation is not None:
             return self._cached_rotation
 
-        skew = self.skew_symmetric_matrix()
-        eye = torch.eye(self.dim, device=skew.device, dtype=skew.dtype)
+        raw = self.raw.float()
+        skew = raw - raw.transpose(-1, -2)
+        eye = torch.eye(self.dim, device=skew.device, dtype=torch.float32)
 
         left = eye + skew
         right = eye - skew
 
-        rotation = torch.linalg.solve(left, right)
+        if left.is_cuda:
+            with torch.cuda.amp.autocast(enabled=False):
+                rotation = torch.linalg.solve(left, right)
+        else:
+            rotation = torch.linalg.solve(left, right)
+
         if use_cache:
             self._cached_rotation = rotation
 
