@@ -3,6 +3,30 @@
 This folder is separate from `src/` and only handles WikiText-2 download,
 processing, and PyTorch dataloader creation.
 
+## Quick Start
+
+Run this from the repository root:
+
+```bash
+bash download/wikitext2/download_and_process.sh
+```
+
+By default, this downloads all WikiText-2 splits and processes them with:
+
+```text
+tokenizer = TinyLlama/TinyLlama-1.1B-Chat-v1.0
+seq_len   = 2048
+```
+
+Override defaults with environment variables:
+
+```bash
+TOKENIZER=TinyLlama/TinyLlama-1.1B-Chat-v1.0 \
+SEQ_LEN=2048 \
+MAX_SAMPLES=128 \
+bash download/wikitext2/download_and_process.sh
+```
+
 ## 1. Download Raw WikiText-2
 
 Run this from the repository root:
