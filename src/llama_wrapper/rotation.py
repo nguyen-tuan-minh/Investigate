@@ -115,3 +115,4 @@ if __name__ == "__main__":
 
     print("\nGradient exists for raw rotation parameter:")
     print(rotation.raw.grad is not None)
+    print(rotation.raw.grad)
