@@ -70,10 +70,10 @@ class CayleyRotation(nn.Module):
                 f"{input.shape[-1]} != {self.dim}"
             )
 
-        output_dtype = input.dtype
-        rotation = self.rotation_matrix(use_cache=use_cache).to(device=input.device)
+        rotation = self.rotation_matrix(use_cache=use_cache)
+        rotation = rotation.to(device=input.device, dtype=input.dtype)
 
-        return input.float().matmul(rotation).to(dtype=output_dtype)
+        return input.matmul(rotation)
 
     def orthogonality_error(self, use_cache: bool = False) -> torch.Tensor:
         rotation = self.rotation_matrix(use_cache=use_cache)
