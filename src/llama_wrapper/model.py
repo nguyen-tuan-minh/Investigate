@@ -80,6 +80,7 @@ class WrappedModule(nn.Module):
     def _forward_path(self, input: torch.Tensor, *args: Any, **kwargs: Any) -> Any:
         value = input
         has_applied_linear = False
+        restore_dtype_after_linear: Optional[torch.dtype] = None
 
         for op in self.path:
             if op == "r":
@@ -100,6 +101,12 @@ class WrappedModule(nn.Module):
             elif op == "l":
                 value = self.base(value, *args, **kwargs)
                 has_applied_linear = True
+                if restore_dtype_after_linear is not None:
+                    value = self._map_transform(
+                        value,
+                        lambda tensor: tensor.to(dtype=restore_dtype_after_linear),
+                    )
+                    restore_dtype_after_linear = None
             elif op == "i":
                 value = self._map_transform(
                     value,
@@ -108,6 +115,8 @@ class WrappedModule(nn.Module):
                         has_applied_linear,
                     ),
                 )
+                if not has_applied_linear and input.is_floating_point():
+                    restore_dtype_after_linear = self._base_parameter_dtype(input.dtype)
 
         return value
 
@@ -129,6 +138,10 @@ class WrappedModule(nn.Module):
         if self.rotation is None:
             position = "after linear" if after_linear else "before linear"
             raise ValueError(f"path requires rotation {position}, but none was provided")
+        if after_linear and hasattr(self.rotation, "rotation_matrix"):
+            rotation_matrix = self.rotation.rotation_matrix(use_cache=self.use_rotation_cache)
+            rotation_matrix = rotation_matrix.to(device=value.device)
+            return value.float().matmul(rotation_matrix)
         return self.rotation(value, use_cache=self.use_rotation_cache)
 
     def _apply_inverse_rotation(
@@ -143,8 +156,17 @@ class WrappedModule(nn.Module):
             raise TypeError("inverse rotation requires a rotation_matrix method")
 
         rotation_matrix = self.rotation.rotation_matrix(use_cache=self.use_rotation_cache)
-        rotation_matrix = rotation_matrix.to(device=value.device, dtype=value.dtype)
-        return value.matmul(rotation_matrix.transpose(-1, -2))
+        rotation_matrix = rotation_matrix.to(device=value.device)
+        output = value.float().matmul(rotation_matrix.transpose(-1, -2))
+        if after_linear:
+            return output.to(dtype=value.dtype)
+        return output
+
+    def _base_parameter_dtype(self, default: torch.dtype) -> torch.dtype:
+        parameter = next(self.base.parameters(), None)
+        if parameter is None:
+            return default
+        return parameter.dtype
 
 
 __all__ = ["WrappedModule"]
