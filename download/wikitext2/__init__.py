@@ -9,6 +9,7 @@ __all__ = [
     "Wikitext2BlockDataset",
     "build_token_blocks",
     "create_wikitext2_dataloader",
+    "ensure_wikitext2_token_blocks",
     "load_raw_split",
     "load_token_blocks",
     "save_token_blocks",
@@ -16,12 +17,21 @@ __all__ = [
 
 
 def __getattr__(name: str) -> object:
-    if name in {"Wikitext2BlockDataset", "create_wikitext2_dataloader"}:
-        from .dataset import Wikitext2BlockDataset, create_wikitext2_dataloader
+    if name in {
+        "Wikitext2BlockDataset",
+        "create_wikitext2_dataloader",
+        "ensure_wikitext2_token_blocks",
+    }:
+        from .dataset import (
+            Wikitext2BlockDataset,
+            create_wikitext2_dataloader,
+            ensure_wikitext2_token_blocks,
+        )
 
         exports = {
             "Wikitext2BlockDataset": Wikitext2BlockDataset,
             "create_wikitext2_dataloader": create_wikitext2_dataloader,
+            "ensure_wikitext2_token_blocks": ensure_wikitext2_token_blocks,
         }
         return exports[name]
 

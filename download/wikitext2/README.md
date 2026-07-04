@@ -67,9 +67,9 @@ blocks.
 It creates:
 
 ```text
-data/processed/wikitext2/train_blocks_2048.pt
-data/processed/wikitext2/validation_blocks_2048.pt
-data/processed/wikitext2/test_blocks_2048.pt
+data/processed/wikitext2/train_TinyLlama_TinyLlama-1.1B-Chat-v1.0_blocks_2048.pt
+data/processed/wikitext2/validation_TinyLlama_TinyLlama-1.1B-Chat-v1.0_blocks_2048.pt
+data/processed/wikitext2/test_TinyLlama_TinyLlama-1.1B-Chat-v1.0_blocks_2048.pt
 ```
 
 One block is one calibration/training sample:
@@ -80,13 +80,16 @@ sample shape = [seq_len]
 
 ## 3. Create a DataLoader
 
-Example:
+The dataloader helper auto-prepares missing data. If processed token blocks do
+not exist, it will download raw WikiText-2 files if needed, then process the
+requested split.
 
 ```python
 from download.wikitext2 import create_wikitext2_dataloader
 
 train_loader = create_wikitext2_dataloader(
     "train",
+    tokenizer_name="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
     seq_len=2048,
     batch_size=8,
     shuffle=True,
@@ -103,6 +106,21 @@ Expected shape:
 ```text
 torch.Size([8, 2048])
 torch.Size([8, 2048])
+```
+
+`tokenizer_name` or `tokenizer` is required only when the processed `.pt` file
+is missing. If the token blocks already exist, the helper loads them directly.
+You may pass `tokenizer_id` when you only need to select an existing processed
+file without loading a tokenizer:
+
+```python
+train_loader = create_wikitext2_dataloader(
+    "train",
+    tokenizer_id="TinyLlama/TinyLlama-1.1B-Chat-v1.0",
+    seq_len=2048,
+    batch_size=8,
+    auto_prepare=False,
+)
 ```
 
 For causal language modeling, `labels` are a clone of `input_ids`. Hugging Face

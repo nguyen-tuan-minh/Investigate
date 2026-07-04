@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -49,5 +50,17 @@ def token_blocks_path(
     split: str,
     seq_len: int = 2048,
     repo_root: Optional[Path] = None,
+    tokenizer_id: Optional[str] = None,
 ) -> Path:
-    return processed_dir(repo_root) / f"{validate_split(split)}_blocks_{seq_len}.pt"
+    tokenizer_part = ""
+    if tokenizer_id is not None:
+        tokenizer_part = f"_{sanitize_path_part(tokenizer_id)}"
+    filename = f"{validate_split(split)}{tokenizer_part}_blocks_{seq_len}.pt"
+    return processed_dir(repo_root) / filename
+
+
+def sanitize_path_part(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError("path component cannot be empty")
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", value)

@@ -133,8 +133,14 @@ def save_token_blocks(
     seq_len: int = 2048,
     max_samples: Optional[int] = None,
     stride: Optional[int] = None,
+    tokenizer_id: Optional[str] = None,
 ) -> Path:
-    output_path = token_blocks_path(split, seq_len=seq_len, repo_root=repo_root)
+    output_path = token_blocks_path(
+        split,
+        seq_len=seq_len,
+        repo_root=repo_root,
+        tokenizer_id=tokenizer_id or tokenizer_identifier(tokenizer),
+    )
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     blocks = build_token_blocks(
@@ -155,13 +161,33 @@ def load_token_blocks(
     repo_root: Optional[Path] = None,
     seq_len: int = 2048,
     map_location: Optional[str] = "cpu",
+    tokenizer_id: Optional[str] = None,
 ) -> torch.Tensor:
-    path = token_blocks_path(split, seq_len=seq_len, repo_root=repo_root)
+    path = token_blocks_path(
+        split,
+        seq_len=seq_len,
+        repo_root=repo_root,
+        tokenizer_id=tokenizer_id,
+    )
     if not path.exists():
         raise FileNotFoundError(
             f"Missing {path}. Run python -m download.wikitext2.process first."
         )
     return torch.load(path, map_location=map_location)
+
+
+def tokenizer_identifier(tokenizer: object) -> str:
+    for attribute in ("name_or_path", "init_kwargs"):
+        value = getattr(tokenizer, attribute, None)
+        if isinstance(value, str) and value:
+            return value
+        if isinstance(value, dict):
+            name_or_path = value.get("name_or_path")
+            if isinstance(name_or_path, str) and name_or_path:
+                return name_or_path
+    raise ValueError(
+        "Could not infer tokenizer id. Pass tokenizer_name or tokenizer_id explicitly."
+    )
 
 
 def main() -> None:
@@ -178,6 +204,7 @@ def main() -> None:
             seq_len=args.seq_len,
             max_samples=args.max_samples,
             stride=args.stride,
+            tokenizer_id=args.tokenizer,
         )
         print(f"Wrote {split} token blocks to {path}")
 
